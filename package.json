@@ -1,0 +1,36 @@
+{
+  "name": "inputhub",
+  "version": "0.2.0",
+  "description": "A hub for registering input events, marking them as handled (detained) and for getting rid of ghost mouse events on touch devices.",
+  "main": "./dist/inputhub.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "babel src -d lib",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikparo/inputhub.js.git"
+  },
+  "keywords": [
+    "input",
+    "event",
+    "mouse",
+    "touch",
+    "pointer",
+    "mobile",
+    "browser"
+  ],
+  "author": "Nik Paro",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nikparo/inputhub.js/issues"
+  },
+  "homepage": "https://github.com/nikparo/inputhub.js#readme",
+  "devDependencies": {
+    "babel-cli": "^6.26.0",
+    "babel-plugin-transform-class-properties": "^6.24.1",
+    "babel-plugin-transform-object-rest-spread": "^6.26.0",
+    "babel-preset-env": "^1.6.1"
+  }
+}

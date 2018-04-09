@@ -1,0 +1,24 @@
+## Project Specific
+lib
+
+## Mac OS
+.DS_Store
+
+## Node JS
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+
+# Compiled binary addons (http://nodejs.org/api/addons.html)
+build/Release
+
+# Dependency directory
+node_modules
+
+# Optional npm cache directory
+.npm
