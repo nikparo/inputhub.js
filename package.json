@@ -2,11 +2,11 @@
   "name": "inputhub",
   "version": "0.2.0",
   "description": "A hub for registering input events, marking them as handled (detained) and for getting rid of ghost mouse events on touch devices.",
-  "main": "./dist/inputhub.js",
+  "main": "./lib/inputhub.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "babel src -d lib",
-    "prepublish": "npm run build"
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
