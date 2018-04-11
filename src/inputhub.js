@@ -32,10 +32,18 @@ export default class InputHub {
     if (ne.detained) {
       return this._detainMismatch(event, ne);
     }
-    ne.detained = event.detained = true;
+    event.detained = ne.detained = true;
+    event.detainedAt = ne.detainedAt = event.currentTarget;
     this.register(event);
     return false;
   }
+
+  // // Fulfilling ghost mouse events (only). Returns false.
+  // // - Not stopping propagation or preventing default, as that may prevent clicks or other built in behaviour (e.g. focus).
+  // fulfillGhostMouse(event) {
+  //   if (event.fulfilled) {
+  //     return false;
+  //   }
 
   // Detain ghost mouse events by returning true immediately.
   // - Not stopping propagation or preventing default, as that would prevent clicks as well.
@@ -49,7 +57,26 @@ export default class InputHub {
       return this._detainMismatch(event, ne);
     }
     if (this.isGhostMouse(event)) {
-      ne.detained = event.detained = true;
+      // console.log(`Detained ghost ${event.type}, triggered by ${this.last.type}`);
+      event.detained = ne.detained = true;
+      return true;
+    }
+    return false;
+  }
+
+  detainGhost(event) {
+    if (event.detained) {
+      return true;
+      // return false;
+    }
+    const ne = this.getNative(event);
+    if (ne.detained) {
+      // return this._fulfillMismatch(event, ne);
+      return this._detainMismatch(event, ne);
+    }
+    if (this.isGhostMouse(event) || this.isGhostTouch(event)) {
+      // console.log(`Detained ghost ${event.type}, triggered by ${this.last.type}`);
+      event.detained = ne.detained = true;
       return true;
     }
     return false;
@@ -65,7 +92,11 @@ export default class InputHub {
   }
 
   isGhostMouse(event) {
-    return /^mouse/.test(event.type) && this.isTouchEvent(this.last);
+    return /^mouse/.test(event.type) && (/^touch/.test(this.last.type) || /^pointer/.test(this.last.type));
+  }
+
+  isGhostTouch(event) {
+    return /^touch/.test(event.type) && /^pointer/.test(this.last.type) && this.last.pointerType === 'touch';
   }
 
   deviceType(event) {
@@ -80,12 +111,25 @@ export default class InputHub {
     }
   }
 
+  getOppositeType(type) {
+    switch (type) {
+      case 'pointerdown': return 'pointerup';
+      case 'pointerup':   return 'pointerdown';
+      case 'touchstart':  return 'touchend';
+      case 'touchend':    return 'touchstart';
+      case 'mousedown':   return 'mouseup';
+      case 'mouseup':     return 'mousedown';
+    }
+  }
+
   register(event) {
     const ne = this.getNative(event);
     this.last = this.previous[event.type] = {
       type:          event.type,
       target:        event.target,
       currentTarget: event.currentTarget,
+      detained:      event.detained,
+      detainedAt:    event.detainedAt,
       pointerType:   ne.pointerType,
       timeStamp:     event.timeStamp,
       event,
@@ -176,8 +220,10 @@ export default class InputHub {
     console.warn('Native event already detained.');
     const { type, target, currentTarget, timeStamp } = event;
     console.log({ type, target, currentTarget, timeStamp, event, nativeEvent });
-    event.detained = true;
+    event.detained = nativeEvent.detained;
+    event.detainedAt = nativeEvent.detainedAt;
     return true;
+    // return false;
   }
 
   /*************/
