@@ -17,66 +17,41 @@ export default class InputHub {
       ...options,
     };
 
-    // At least Blaze creates new jQuery events for new templates. Checking event.detained is not dependable without extending jQuery.
-    if (this.options.extendJQuery && window.jQuery && !jQuery.event.props.includes('detained')) {
-      jQuery.event.props.push('detained');
+    // Blaze (or jQuery?) creates new jQuery events for new templates, even for the same native event.
+    // Checking event.fulfilled is therefore not dependable without extending jQuery.
+    if (this.options.extendJQuery && window.jQuery && !jQuery.event.props.includes('fulfilled')) {
+      jQuery.event.props.push('fulfilled');
     }
   }
 
-  /* Return whether the event was detained prior to the call */
-  detain(event) {
-    if (event.detained) {
-      return true;
+  /* Returns whether we just fulfilled the event */
+  fulfill(event) {
+    if (event.fulfilled) {
+      return false;
     }
     const ne = this.getNative(event);
-    if (ne.detained) {
-      return this._detainMismatch(event, ne);
+    if (ne.fulfilled) {
+      return this._fulfillMismatch(event, ne);
     }
-    event.detained = ne.detained = true;
-    event.detainedAt = ne.detainedAt = event.currentTarget;
+    event.fulfilled = ne.fulfilled = true;
+    event.fulfilledAt = ne.fulfilledAt = event.currentTarget;
     this.register(event);
-    return false;
+    return true;
   }
 
-  // // Fulfilling ghost mouse events (only). Returns false.
-  // // - Not stopping propagation or preventing default, as that may prevent clicks or other built in behaviour (e.g. focus).
-  // fulfillGhostMouse(event) {
-  //   if (event.fulfilled) {
-  //     return false;
-  //   }
-
-  // Detain ghost mouse events by returning true immediately.
-  // - Not stopping propagation or preventing default, as that would prevent clicks as well.
-  // - Not detaining non-ghosts, since it's unknown whether they should be detained
-  detainGhostMouse(event) {
-    if (event.detained) {
-      return true;
+  // Fulfill a ghost event (but not "real" events). Returns whether it was fulfilled.
+  // - Not stopping propagation or preventing default, as that may prevent clicks or other built in behaviour (e.g. focus).
+  fulfillGhost(event) {
+    if (event.fulfilled) {
+      return false;
     }
     const ne = this.getNative(event);
-    if (ne.detained) {
-      return this._detainMismatch(event, ne);
-    }
-    if (this.isGhostMouse(event)) {
-      // console.log(`Detained ghost ${event.type}, triggered by ${this.last.type}`);
-      event.detained = ne.detained = true;
-      return true;
-    }
-    return false;
-  }
-
-  detainGhost(event) {
-    if (event.detained) {
-      return true;
-      // return false;
-    }
-    const ne = this.getNative(event);
-    if (ne.detained) {
-      // return this._fulfillMismatch(event, ne);
-      return this._detainMismatch(event, ne);
+    if (ne.fulfilled) {
+      return this._fulfillMismatch(event, ne);
     }
     if (this.isGhostMouse(event) || this.isGhostTouch(event)) {
-      // console.log(`Detained ghost ${event.type}, triggered by ${this.last.type}`);
-      event.detained = ne.detained = true;
+      // console.log(`Fulfilled ghost ${event.type}, triggered by ${this.last.type}`);
+      event.fulfilled = ne.fulfilled = true;
       return true;
     }
     return false;
@@ -128,8 +103,8 @@ export default class InputHub {
       type:          event.type,
       target:        event.target,
       currentTarget: event.currentTarget,
-      detained:      event.detained,
-      detainedAt:    event.detainedAt,
+      fulfilled:     event.fulfilled,
+      fulfilledAt:   event.fulfilledAt,
       pointerType:   ne.pointerType,
       timeStamp:     event.timeStamp,
       event,
@@ -216,14 +191,13 @@ export default class InputHub {
   /* Private methods */
   /*******************/
 
-  _detainMismatch(event, nativeEvent) {
-    console.warn('Native event already detained.');
+  _fulfillMismatch(event, nativeEvent) {
+    console.warn('Native event already fulfilled.');
     const { type, target, currentTarget, timeStamp } = event;
     console.log({ type, target, currentTarget, timeStamp, event, nativeEvent });
-    event.detained = nativeEvent.detained;
-    event.detainedAt = nativeEvent.detainedAt;
-    return true;
-    // return false;
+    event.fulfilled = nativeEvent.fulfilled;
+    event.fulfilledAt = nativeEvent.fulfilledAt;
+    return false;
   }
 
   /*************/
