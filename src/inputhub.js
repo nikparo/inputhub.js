@@ -1,5 +1,7 @@
 'use strict';
 
+import detectPassiveEvents from 'detect-passive-events';
+
 export default class InputHub {
   constructor(options={}) {
     this.last = {};
@@ -14,6 +16,7 @@ export default class InputHub {
       typeSeparator: '/',
       domNode:       document.body,
       extendJQuery:  true,
+      passiveTypes:  ['touchstart', 'touchmove', 'scroll'],
       ...options,
     };
 
@@ -157,15 +160,14 @@ export default class InputHub {
     // Cache the domListener so that we can remove it later.
     const data = { domListener, unbind };
 
-    // We are doing "once" ourselves (once across all types together),
-    // but we simply pass through capture and passive if they are supported and set.
-    // Note, passive defaults to true in chromium 55+ on touchstart and touchmove.
-    let _options = capture;
-    if (passive != null && passiveSupported) {
-      _options = { capture, passive };
-    }
-
     types.forEach(type => {
+      // We do "once" ourselves, combined over all types, but set passive if it is supported.
+      // Note, passive defaults to true in chromium 55+ on touchstart and touchmove.
+      const _options = !detectPassiveEvents.hasSupport ? !!capture : {
+        capture: !!capture,
+        passive: (passive != null) ? !!passive : this.options.passiveTypes.includes(type),
+      };
+      // Create weakmap for any type we haven't seen before.
       if (!this.listeners[type]) {
         this.listeners[type] = new WeakMap();
       }
@@ -204,30 +206,14 @@ export default class InputHub {
   /* Constants */
   /*************/
 
-  pointerdown  = !!window.PointerEvent ? 'pointerdown' :  'mousedown/touchstart';
-  pointerup    = !!window.PointerEvent ? 'pointerup'   :  'mouseup/touchend';
+  pointerdown  = !!window.PointerEvent ? 'pointerdown' :  ['mousedown', 'touchstart'].join(this.options.typeSeparator);
+  pointerup    = !!window.PointerEvent ? 'pointerup'   :  ['mouseup', 'touchend'].join(this.options.typeSeparator);
   pointerenter = !!window.PointerEvent ? 'pointerenter' : 'mouseenter';
   pointerleave = !!window.PointerEvent ? 'pointerleave' : 'mouseleave';
-  get pointermove() {
-    console.warn('Pointermove fires together with mousemove events, but also with the first few touchmove events. Be particular about the event types you need.');
-    return 'pointermove';
-  }
 
   isMac = (/^Mac/).test(navigator.platform);
   metaKey = this.isMac ? 'metaKey' : 'ctrlKey';
 }
-
-
-/*********************/
-/* Feature detection */
-/********************/
-
-// Check whether addEventListener supports an options object.
-// Copied from https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener
-let passiveSupported = false;
-try {
-  window.addEventListener("test", null, Object.defineProperty({}, "passive", { get() { passiveSupported = true; } }));
-} catch(err) {}
 
 /********************/
 /* Helper functions */
