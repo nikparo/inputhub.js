@@ -39,7 +39,7 @@ export default class InputHub {
     if (!event.nativeEvent) {
       return false;
     }
-    const cls = `.js-${event.type}`;
+    const cls = `.react-${event.type}`;
     let target = event.target;
     while (target && target !== event.currentTarget) {
       if (target.matches(cls)) {
