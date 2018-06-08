@@ -36,7 +36,7 @@ export default class InputHub {
   }
 
   fulfillByReact(event) {
-    if (!event.nativeEvent) {
+    if (event.nativeEvent) {
       return false;
     }
     const cls = `.react-${event.type}`;
@@ -129,8 +129,8 @@ export default class InputHub {
       type:          event.type,
       target:        event.target,
       currentTarget: event.currentTarget,
-      fulfilled:     event.fulfilled,
-      fulfilledAt:   event.fulfilledAt,
+      fulfilled:     ne.fulfilled,
+      fulfilledAt:   ne.fulfilledAt,
       pointerType:   ne.pointerType,
       timeStamp:     event.timeStamp,
       event,
