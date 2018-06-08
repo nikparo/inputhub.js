@@ -27,17 +27,44 @@ export default class InputHub {
     }
   }
 
-  /* Returns whether we just fulfilled the event */
-  fulfill(event) {
-    if (event.fulfilled) {
+  isFulfilled(event) {
+    const ne = this.getNative(event);
+    if (ne.fulfilled === 'react' && event.nativeEvent) {
+      ne.fulfilled = false;
+    }
+    return !!ne.fulfilled;
+  }
+
+  fulfillByReact(event) {
+    if (!event.nativeEvent) {
       return false;
     }
-    const ne = this.getNative(event);
-    if (ne.fulfilled) {
-      return this._fulfillMismatch(event, ne);
+    const cls = `.js-${event.type}`;
+    let target = event.target;
+    while (target && target !== event.currentTarget) {
+      if (target.matches(cls)) {
+        return true;
+      }
+      target = target.parentElement;
     }
-    event.fulfilled = ne.fulfilled = true;
-    event.fulfilledAt = ne.fulfilledAt = event.currentTarget;
+    return false;
+  }
+
+  /* Returns whether we just fulfilled the event */
+  // Always fulfill the native event (since react synthetic events are re-used)
+  fulfill(event) {
+    const ne = this.getNative(event);
+    if (!ne.fulfilled) {
+      if (this.fulfillByReact(event)) {
+        ne.fulfilled = 'react';
+        return false;
+      }
+    } else if (!event.nativeEvent || ne.fulfilled !== 'react') {
+      return false;
+    }
+
+    ne.fulfilled = true;
+    ne.fulfilledAt = event.currentTarget;
     this.register(event);
     return true;
   }
@@ -45,16 +72,12 @@ export default class InputHub {
   // Fulfill a ghost event (but not "real" events). Returns whether it was fulfilled.
   // - Not stopping propagation or preventing default, as that may prevent clicks or other built in behaviour (e.g. focus).
   fulfillGhost(event) {
-    if (event.fulfilled) {
-      return false;
-    }
     const ne = this.getNative(event);
     if (ne.fulfilled) {
-      return this._fulfillMismatch(event, ne);
+      return false;
     }
     if (this.isGhostMouse(event) || this.isGhostTouch(event)) {
-      // console.log(`Fulfilled ghost ${event.type}, triggered by ${this.last.type}`);
-      event.fulfilled = ne.fulfilled = true;
+      ne.fulfilled = true;
       return true;
     }
     return false;
@@ -193,15 +216,6 @@ export default class InputHub {
   /* Private methods */
   /*******************/
 
-  _fulfillMismatch(event, nativeEvent) {
-    console.warn('Native event already fulfilled.');
-    const { type, target, currentTarget, timeStamp } = event;
-    console.log({ type, target, currentTarget, timeStamp, event, nativeEvent });
-    event.fulfilled = nativeEvent.fulfilled;
-    event.fulfilledAt = nativeEvent.fulfilledAt;
-    return false;
-  }
-
   /*************/
   /* Constants */
   /*************/
@@ -210,6 +224,9 @@ export default class InputHub {
   pointerup    = !!window.PointerEvent ? 'pointerup'   :  ['mouseup', 'touchend'].join(this.options.typeSeparator);
   pointerenter = !!window.PointerEvent ? 'pointerenter' : 'mouseenter';
   pointerleave = !!window.PointerEvent ? 'pointerleave' : 'mouseleave';
+
+  onPointerDown = !!window.PointerEvent ? ['onPointerDown'] : ['onMouseDown', 'onTouchStart'];
+  onPointerUp   = !!window.PointerEvent ? ['onPointerUp']   : ['onMouseUp', 'onTouchEnd'];
 
   isMac = (/^Mac/).test(navigator.platform);
   metaKey = this.isMac ? 'metaKey' : 'ctrlKey';
