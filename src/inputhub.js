@@ -2,6 +2,8 @@
 
 import detectPassiveEvents from 'detect-passive-events';
 
+const AWAIT_REACT = 'react';
+
 export default class InputHub {
   constructor(options={}) {
     this.last = {};
@@ -13,29 +15,33 @@ export default class InputHub {
     this.listeners = {};
 
     this.options = {
-      typeSeparator: '/',
-      domNode:       document.body,
+      typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
+      domNode:       global.document,
       extendJQuery:  true,
+      supportReact:  true,
       passiveTypes:  ['touchstart', 'touchmove', 'scroll'],
       ...options,
     };
 
     // Blaze (or jQuery?) creates new jQuery events for new templates, even for the same native event.
     // Checking event.fulfilled is therefore not dependable without extending jQuery.
-    if (this.options.extendJQuery && window.jQuery && !jQuery.event.props.includes('fulfilled')) {
+    if (this.options.extendJQuery && (typeof jQuery !== 'undefined') && !jQuery.event.props.includes('fulfilled')) {
       jQuery.event.props.push('fulfilled');
     }
   }
 
   isFulfilled(event) {
     const ne = this.getNative(event);
-    if (ne.fulfilled === 'react' && event.nativeEvent) {
+    if (this.options.supportReact && ne.fulfilled === AWAIT_REACT && event.nativeEvent) {
       ne.fulfilled = false;
     }
     return !!ne.fulfilled;
   }
 
-  fulfillByReact(event) {
+  // This check relies on the developer adding 'react-click' etc. handlers.
+  // This is because we don't have a good way of check whether a react handler is actually bound or not.
+  // - Does not follow portals, but native events don't follow portals either, so it shouldn't matter
+  reactHandlerExists(event) {
     if (event.nativeEvent) {
       return false;
     }
@@ -54,12 +60,15 @@ export default class InputHub {
   // Always fulfill the native event (since react synthetic events are re-used)
   fulfill(event) {
     const ne = this.getNative(event);
-    if (!ne.fulfilled) {
-      if (this.fulfillByReact(event)) {
-        ne.fulfilled = 'react';
+
+    if (ne.fulfilled) {
+      if (ne.fulfilled !== AWAIT_REACT || !event.nativeEvent) {
+        // Already fulfilled, or waiting for a react handler
         return false;
       }
-    } else if (!event.nativeEvent || ne.fulfilled !== 'react') {
+    } else if (this.options.supportReact && this.reactHandlerExists(event)) {
+      // Wait for a react handler
+      ne.fulfilled = AWAIT_REACT;
       return false;
     }
 
@@ -156,6 +165,10 @@ export default class InputHub {
     const { once, capture, passive } = options;
     // Cache the domNode in case it is forcibly changed
     const domNode = this.options.domNode;
+    if (!domNode) {
+      console.error('Inputhub domNode is not defined');
+      return;
+    }
 
     // Make sure we don't double-bind listeners
     this.off(typestring, listener);
@@ -211,30 +224,11 @@ export default class InputHub {
       this.listeners[type].delete(listener);
     });
   }
-
-  /*******************/
-  /* Private methods */
-  /*******************/
-
-  /*************/
-  /* Constants */
-  /*************/
-
-  pointerdown  = !!window.PointerEvent ? 'pointerdown' :  ['mousedown', 'touchstart'].join(this.options.typeSeparator);
-  pointerup    = !!window.PointerEvent ? 'pointerup'   :  ['mouseup', 'touchend'].join(this.options.typeSeparator);
-  pointerenter = !!window.PointerEvent ? 'pointerenter' : 'mouseenter';
-  pointerleave = !!window.PointerEvent ? 'pointerleave' : 'mouseleave';
-
-  onPointerDown = !!window.PointerEvent ? ['onPointerDown'] : ['onMouseDown', 'onTouchStart'];
-  onPointerUp   = !!window.PointerEvent ? ['onPointerUp']   : ['onMouseUp', 'onTouchEnd'];
-
-  isMac = (/^Mac/).test(navigator.platform);
-  metaKey = this.isMac ? 'metaKey' : 'ctrlKey';
 }
 
-/********************/
+/* **************** */
 /* Helper functions */
-/********************/
+/* **************** */
 
 function typeAssert(variable, type) {
   if (typeof variable === type) return;
