@@ -20,6 +20,22 @@ export default class InputHub {
       extendJQuery:  true,
       supportReact:  true,
       passiveTypes:  ['touchstart', 'touchmove', 'scroll'],
+      savedProps(event, nativeEvent) {
+        const { type, target, currentTarget, timeStamp } = event;
+        const { fulfilled, fulfilledAt, pointerType, defaultPrevented } = nativeEvent || event;
+        return {
+          // Get from event, as they sometimes differ from the native event
+          type,
+          target,
+          currentTarget,
+          timeStamp,
+          // Get native event props
+          fulfilled,
+          fulfilledAt,
+          pointerType, // missing for jQuery events
+          defaultPrevented,
+        };
+      },
       ...options,
     };
 
@@ -32,8 +48,14 @@ export default class InputHub {
 
   isFulfilled(event) {
     const ne = this.getNative(event);
-    if (this.options.supportReact && ne.fulfilled === AWAIT_REACT && event.nativeEvent) {
-      ne.fulfilled = false;
+    if (this.options.supportReact) {
+      if (event.nativeEvent) {
+        return (ne.fulfilled === AWAIT_REACT) ? false : !!ne.fulfilled;
+      }
+      if (ne.fulfilled == null) {
+        // Check for react handler if we haven't yet
+        ne.fulfilled = this.reactHandlerExists(event) ? AWAIT_REACT : false;
+      }
     }
     return !!ne.fulfilled;
   }
@@ -43,6 +65,7 @@ export default class InputHub {
   // - Does not follow portals, but native events don't follow portals either, so it shouldn't matter
   reactHandlerExists(event) {
     if (event.nativeEvent) {
+      // This is a synthetic event - there's no need to check
       return false;
     }
     const cls = `.react-${event.type}`;
@@ -59,19 +82,10 @@ export default class InputHub {
   /* Returns whether we just fulfilled the event */
   // Always fulfill the native event (since react synthetic events are re-used)
   fulfill(event) {
-    const ne = this.getNative(event);
-
-    if (ne.fulfilled) {
-      if (ne.fulfilled !== AWAIT_REACT || !event.nativeEvent) {
-        // Already fulfilled, or waiting for a react handler
-        return false;
-      }
-    } else if (this.options.supportReact && this.reactHandlerExists(event)) {
-      // Wait for a react handler
-      ne.fulfilled = AWAIT_REACT;
+    if (this.isFulfilled(event)) {
       return false;
     }
-
+    const ne = this.getNative(event);
     ne.fulfilled = true;
     ne.fulfilledAt = event.currentTarget;
     this.register(event);
@@ -83,6 +97,7 @@ export default class InputHub {
   fulfillGhost(event) {
     const ne = this.getNative(event);
     if (ne.fulfilled) {
+      // FIXME: test this with react events! ... Is this needed? Should it be (ne.fulfilled === true) ???
       return false;
     }
     if (this.isGhostMouse(event) || this.isGhostTouch(event)) {
@@ -134,16 +149,8 @@ export default class InputHub {
 
   register(event) {
     const ne = this.getNative(event);
-    this.last = this.previous[event.type] = {
-      type:          event.type,
-      target:        event.target,
-      currentTarget: event.currentTarget,
-      fulfilled:     ne.fulfilled,
-      fulfilledAt:   ne.fulfilledAt,
-      pointerType:   ne.pointerType,
-      timeStamp:     event.timeStamp,
-      event,
-    };
+    this.last = this.options.savedProps(event, ne);
+    this.previous[event.type] = this.last;
   }
 
   typeArray(typestring) {
