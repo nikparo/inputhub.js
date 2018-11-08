@@ -1,8 +1,10 @@
 'use strict';
 
 import detectPassiveEvents from 'detect-passive-events';
+import memoizeOne from 'memoize-one';
 
 const AWAIT_REACT = 'react';
+const OPTION_KEYS = ['passivecapture', 'capture', 'passive', 'normal'];
 
 export default class InputHub {
   constructor(options={}) {
@@ -13,6 +15,7 @@ export default class InputHub {
     // Using WeakMaps since we don't need to remember the listener if node.removeEventListener
     // was used to remove it directly.
     this.listeners = {};
+    this.domListeners = {};
 
     this.options = {
       typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
@@ -20,6 +23,7 @@ export default class InputHub {
       extendJQuery:  true,
       supportReact:  true,
       passiveTypes:  ['touchstart', 'touchmove', 'scroll'],
+      lifo:          true, // Last in - First out
       savedProps(event, nativeEvent) {
         const { type, target, currentTarget, timeStamp } = event;
         const { fulfilled, fulfilledAt, pointerType, defaultPrevented } = nativeEvent || event;
@@ -158,78 +162,167 @@ export default class InputHub {
     return typestring.split(this.options.typeSeparator).map(t => t.trim()).filter(t => t);
   }
 
-  once(types, listener) {
-    return this.on(types, listener, {once: true});
+  updateDomBindings(type) {
+    if (!this.listeners[type]) {
+      return;
+    }
+    if (!this.domListeners[type]) {
+      this.domListeners[type] = {};
+    }
+    const filtered = this.listeners[type].filter();
+
+    OPTION_KEYS.forEach(key => {
+      const isMatch = !!this.domListeners[type][key] === !!filtered[key].length;
+      if (isMatch) {
+        return;
+      }
+      const passive = key.startsWith('passive');
+      const capture = key.endsWith('capture');
+      const options = !detectPassiveEvents.hasSupport ? !!capture : { capture, passive };
+
+      if (filtered[key].length) {
+        // Bind listener. Simulate passive with async.
+        const asyncPassive = (passive && !detectPassiveEvents.hasSupport);
+        const domListener = (event) => {
+          const predicate = asyncPassive ? (async (handler) => handler(event)) : (handler => handler(event));
+          this.listeners[type].filter()[key].forEach(predicate);
+        };
+
+        this.domListeners[type][key] = domListener;
+        this.options.domNode.addEventListener(type, domListener, options);
+      } else {
+        // Unbind listener if there are no handlers
+        const domListener = this.domListeners[type][key];
+        this.domListeners[type][key] = null;
+        this.options.domNode.removeEventListener(type, domListener);
+      }
+    });
+  }
+
+  once(types, listener, options) {
+    return this.on(types, listener, { ...options, once: true });
   }
 
   // typestring is a string in the format 'touchstart/mousedown'
   // listener is a function
-  // options are the standard options supported by addEventListener()
+  // options are: { once, lifo, capture, passive }
   // Returns a function that unbinds the listeners.
-  // If once is used, only this.off() will be able to unbind them. Otherwise removeEventListener works as well.
-  on(typestring, listener, options={}) {
+  on(typestring, listener, options = {}) {
     typeAssert(listener, 'function');
-    const { once, capture, passive } = options;
-    // Cache the domNode in case it is forcibly changed
-    const domNode = this.options.domNode;
-    if (!domNode) {
-      console.error('Inputhub domNode is not defined');
-      return;
-    }
-
-    // Make sure we don't double-bind listeners
-    this.off(typestring, listener);
+    typeAssert(options, 'object');
+    const once = !!options.once;
+    const capture = !!options.capture;
+    const lifo = options.life != null ? !! options.lifo : this.options.lifo;
 
     const types = this.typeArray(typestring);
     if (!types.length) {
       throw new Error('Got no type(s) to bind listener to');
     }
 
-    // domListener and unbind depend on each other, but this is fine since they are both defined by the time either execute
-    const domListener = !once ? listener : function domListener(event) {
+    // Make sure we don't double-bind listeners
+    this.off(typestring, listener, options);
+
+    // Return an unbind function that will unbind this function for the passed typestring
+    const unbindListeners = [];
+    const unbindAll = () => unbindListeners.forEach(unbind => unbind());
+
+    const wrappedListener = !once ? listener : function wrappedListener(event) {
       listener.call(this, event);
-      unbind();
+      unbindAll();
     };
-
-    // Return an unbind function hat will unbind this specific binding.
-    const unbind = () => types.forEach(type => {
-      const data = this.listeners[type].get(listener);
-      if (data && data.unbind === unbind) {
-        domNode.removeEventListener(type, domListener);
-        this.listeners[type].delete(listener);
-      }
-    });
-
-    // Cache the domListener so that we can remove it later.
-    const data = { domListener, unbind };
 
     types.forEach(type => {
       // We do "once" ourselves, combined over all types, but set passive if it is supported.
       // Note, passive defaults to true in chromium 55+ on touchstart and touchmove.
-      const _options = !detectPassiveEvents.hasSupport ? !!capture : {
-        capture: !!capture,
-        passive: (passive != null) ? !!passive : this.options.passiveTypes.includes(type),
-      };
-      // Create weakmap for any type we haven't seen before.
+      const passive = (options.passive != null) ? !!options.passive : this.options.passiveTypes.includes(type);
+
+      // Create defaults for any type we haven't seen before.
       if (!this.listeners[type]) {
-        this.listeners[type] = new WeakMap();
+        this.listeners[type] = {
+          filter: this.listFactory(type),
+          handlers: [],
+        };
       }
-      this.listeners[type].set(listener, data);
-      domNode.addEventListener(type, domListener, _options);
+
+      // Store data about this listener, so that we can unbind it etc.
+      const data = {
+        listener,
+        unbindAll,
+        wrappedListener,
+        passive,
+        capture,
+        once,
+        typestring,
+      };
+
+      // Create an unbind function for this specific binding
+      let isBound = true;
+      const unbind = () => {
+        if (!isBound) {
+          return;
+        }
+        isBound = false;
+        const idx = this.listeners[type].handlers.indexOf(data);
+        if (idx === -1) {
+          return;
+        }
+        this.listeners[type].handlers = this.listeners[type].handlers.slice();
+        this.listeners[type].handlers.splice(idx, 1);
+        this.updateDomBindings(type);
+      };
+      data.unbind = unbind;
+      unbindListeners.push(unbind);
+
+      // Add the listener data to the start or end of array.
+      // Dom listeners are executed in the same order as they are added.
+      if (lifo) {
+        this.listeners[type].handlers = [data, ...this.listeners[type].handlers];
+      } else {
+        this.listeners[type].handlers = [...this.listeners[type].handlers, data];
+      }
+      this.updateDomBindings(type);
     });
 
-    return unbind;
+    return unbindAll;
   }
 
-  off(typestring, listener) {
+  off(typestring, listener, options = {}) {
     typeAssert(listener, 'function');
+    const ignorePassive = options.passive == null;
+    const ignoreCapture = options.capture == null;
+    const passive = !!options.passive;
+    const capture = !!options.capture;
 
-    this.typeArray(typestring).forEach(type => {
-      const data = this.listeners[type] && this.listeners[type].get(listener);
-      if (!data) return;
-      this.options.domNode.removeEventListener(type, data.domListener);
-      this.listeners[type].delete(listener);
+    const isMatch = (data) => (
+      listener === data.listener
+      && (ignorePassive || passive === data.passive)
+      && (ignoreCapture || capture === data.capture)
+    );
+
+    this.typeArray(typestring).forEach((type) => {
+      if (!this.listeners[type]) {
+        return;
+      }
+      // Do a reverse traversal of the handlers to splice away any matching listeners
+      const handlers = this.listeners[type].handlers.slice();
+      let hasChanged;
+      for (let i = (handlers.length - 1); i >= 0; i--) {
+        if (isMatch(handlers[i])) {
+          hasChanged = true;
+          handlers.splice(i, 1);
+        }
+      }
+      if (!hasChanged) {
+        return;
+      }
+      this.listeners[type].handlers = handlers;
+      this.updateDomBindings(type);
     });
+  }
+
+  listFactory(type) {
+    const listFilter = memoizeOne(listSeparator);
+    return () => listFilter(this.listeners[type].handlers);
   }
 }
 
@@ -240,4 +333,25 @@ export default class InputHub {
 function typeAssert(variable, type) {
   if (typeof variable === type) return;
   throw new TypeError(`Variable expected to be of type ${type}`);
+}
+
+function listSeparator(list) {
+  const passivecapture = [];
+  const capture = [];
+  const passive = [];
+  const normal = [];
+  list.forEach((obj) => {
+    let ary;
+    if (obj.passive && obj.capture) {
+      ary = passivecapture;
+    } else if (obj.capture) {
+      ary = capture;
+    } else if (obj.passive) {
+      ary = passive
+    } else {
+      ary = normal;
+    }
+    ary.push(obj.wrappedListener);
+  });
+  return { passivecapture, capture, passive, normal };
 }
