@@ -1,13 +1,100 @@
-'use strict';
-
 import detectPassiveEvents from 'detect-passive-events';
 import memoizeOne from 'memoize-one';
 
 const AWAIT_REACT = 'react';
 const OPTION_KEYS = ['passivecapture', 'capture', 'passive', 'normal'];
 
+const typeOppositeMap = {
+  pointerdown: 'pointerup',
+  pointerup: 'pointerdown',
+  touchstart: 'touchend',
+  touchend: 'touchstart',
+  mousedown: 'mouseup',
+  mouseup: 'mousedown',
+};
+
+/* **************** */
+/* Helper functions */
+/* **************** */
+
+// This check relies on the developer adding 'react-click' etc. handlers,
+// as we don't have a good way of check whether a react handler is actually bound or not.
+// This does not follow portals, but native events don't either, so it shouldn't matter
+const reactHandlerExists = (event) => {
+  if (event.nativeEvent) {
+    // This is a synthetic event - there's no need to check
+    return false;
+  }
+  const cls = `.react-${event.type}`;
+  let { target } = event;
+  while (target && target !== event.currentTarget) {
+    if (target.matches(cls)) {
+      return true;
+    }
+    target = target.parentElement;
+  }
+  return false;
+};
+
+function typeAssert(variable, type) {
+  if (typeof variable === type) return; // eslint-disable-line valid-typeof
+  throw new TypeError(`Variable expected to be of type ${type}`);
+}
+
+function listSeparator(list) {
+  const passivecapture = [];
+  const capture = [];
+  const passive = [];
+  const normal = [];
+  list.forEach((obj) => {
+    let ary;
+    if (obj.passive && obj.capture) {
+      ary = passivecapture;
+    } else if (obj.capture) {
+      ary = capture;
+    } else if (obj.passive) {
+      ary = passive;
+    } else {
+      ary = normal;
+    }
+    ary.push(obj.wrappedListener);
+  });
+  return {
+    passivecapture, capture, passive, normal,
+  };
+}
+
+/* **************** */
+/* InputHub class   */
+/* **************** */
+
 export default class InputHub {
-  constructor(options={}) {
+  // Get the native event (jQuery || React || native)
+  static getNative(event) {
+    return event.originalEvent || event.nativeEvent || event;
+  }
+  static deviceType(event) {
+    if (/^pointer/.test(event.type)) {
+      return event.pointerType || 'mouse';
+    } else if (/^mouse/.test(event.type)) {
+      return 'mouse';
+    } else if (/^touch/.test(event.type)) {
+      return 'touch';
+    } else if (/^key/.test(event.type)) {
+      return 'key';
+    }
+    return null;
+  }
+  static getOppositeType(type) {
+    return typeOppositeMap[type];
+  }
+
+  constructor(options = {}) {
+    // Provide easy access to static helper functions
+    this.getNative = InputHub.getNative;
+    this.deviceType = InputHub.deviceType;
+    this.getOppositeType = InputHub.getOppositeType;
+
     this.last = {};
     this.previous = {};
 
@@ -19,14 +106,18 @@ export default class InputHub {
 
     this.options = {
       typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
-      domNode:       global.document,
-      extendJQuery:  true,
-      supportReact:  true,
-      passiveTypes:  ['touchstart', 'touchmove', 'scroll'],
-      lifo:          true, // Last in - First out
+      domNode: global.document,
+      extendJQuery: true,
+      supportReact: true,
+      passiveTypes: ['touchstart', 'touchmove', 'scroll'],
+      lifo: true, // Last in - First out
       savedProps(event, nativeEvent) {
-        const { type, target, currentTarget, timeStamp } = event;
-        const { fulfilled, fulfilledAt, pointerType, defaultPrevented } = nativeEvent || event;
+        const {
+          type, target, currentTarget, timeStamp,
+        } = event;
+        const {
+          fulfilled, fulfilledAt, pointerType, defaultPrevented,
+        } = nativeEvent || event;
         return {
           // Get from event, as they sometimes differ from the native event
           type,
@@ -43,10 +134,10 @@ export default class InputHub {
       ...options,
     };
 
-    // Blaze (or jQuery?) creates new jQuery events for new templates, even for the same native event.
+    // Blaze (or jQuery) creates new events for new templates, even for the same native event.
     // Checking event.fulfilled is therefore not dependable without extending jQuery.
-    if (this.options.extendJQuery && (typeof jQuery !== 'undefined') && !jQuery.event.props.includes('fulfilled')) {
-      jQuery.event.props.push('fulfilled');
+    if (this.options.extendJQuery && (typeof jQuery !== 'undefined') && !jQuery.event.props.includes('fulfilled')) { // eslint-disable-line no-undef
+      jQuery.event.props.push('fulfilled'); // eslint-disable-line no-undef
     }
   }
 
@@ -58,29 +149,10 @@ export default class InputHub {
       }
       if (ne.fulfilled == null) {
         // Check for react handler if we haven't yet
-        ne.fulfilled = this.reactHandlerExists(event) ? AWAIT_REACT : false;
+        ne.fulfilled = reactHandlerExists(event) ? AWAIT_REACT : false;
       }
     }
     return !!ne.fulfilled;
-  }
-
-  // This check relies on the developer adding 'react-click' etc. handlers.
-  // This is because we don't have a good way of check whether a react handler is actually bound or not.
-  // - Does not follow portals, but native events don't follow portals either, so it shouldn't matter
-  reactHandlerExists(event) {
-    if (event.nativeEvent) {
-      // This is a synthetic event - there's no need to check
-      return false;
-    }
-    const cls = `.react-${event.type}`;
-    let target = event.target;
-    while (target && target !== event.currentTarget) {
-      if (target.matches(cls)) {
-        return true;
-      }
-      target = target.parentElement;
-    }
-    return false;
   }
 
   /* Returns whether we just fulfilled the event */
@@ -97,11 +169,13 @@ export default class InputHub {
   }
 
   // Fulfill a ghost event (but not "real" events). Returns whether it was fulfilled.
-  // - Not stopping propagation or preventing default, as that may prevent clicks or other built in behaviour (e.g. focus).
+  // - Does not stop propagation or prevent default, as that may prevent clicks or
+  // other built in behaviour (e.g. focus).
   fulfillGhost(event) {
     const ne = this.getNative(event);
     if (ne.fulfilled) {
-      // FIXME: test this with react events! ... Is this needed? Should it be (ne.fulfilled === true) ???
+      // FIXME: test this with react events!
+      // - Is this needed? Should it be (ne.fulfilled === true) ???
       return false;
     }
     if (this.isGhostMouse(event) || this.isGhostTouch(event)) {
@@ -111,13 +185,8 @@ export default class InputHub {
     return false;
   }
 
-  // Get the native event (jQuery || React || native)
-  getNative(event) {
-    return event.originalEvent || event.nativeEvent || event;
-  }
-
   isTouchEvent(event) {
-    return /^touch/.test(event.type) || this.getNative(event).pointerType === 'touch';
+    return (/^touch/.test(event.type) || this.getNative(event).pointerType === 'touch');
   }
 
   isGhostMouse(event) {
@@ -126,29 +195,6 @@ export default class InputHub {
 
   isGhostTouch(event) {
     return /^touch/.test(event.type) && /^pointer/.test(this.last.type) && this.last.pointerType === 'touch';
-  }
-
-  deviceType(event) {
-    if (/^pointer/.test(event.type)) {
-      return event.pointerType || 'mouse';
-    } else if (/^mouse/.test(event.type)) {
-      return 'mouse';
-    } else if (/^touch/.test(event.type)) {
-      return 'touch';
-    } else if (/^key/.test(event.type)) {
-      return 'key';
-    }
-  }
-
-  getOppositeType(type) {
-    switch (type) {
-      case 'pointerdown': return 'pointerup';
-      case 'pointerup':   return 'pointerdown';
-      case 'touchstart':  return 'touchend';
-      case 'touchend':    return 'touchstart';
-      case 'mousedown':   return 'mouseup';
-      case 'mouseup':     return 'mousedown';
-    }
   }
 
   register(event) {
@@ -171,7 +217,7 @@ export default class InputHub {
     }
     const filtered = this.listeners[type].filter();
 
-    OPTION_KEYS.forEach(key => {
+    OPTION_KEYS.forEach((key) => {
       const isMatch = !!this.domListeners[type][key] === !!filtered[key].length;
       if (isMatch) {
         return;
@@ -181,11 +227,9 @@ export default class InputHub {
       const options = !detectPassiveEvents.hasSupport ? !!capture : { capture, passive };
 
       if (filtered[key].length) {
-        // Bind listener. Simulate passive with async.
-        const asyncPassive = (passive && !detectPassiveEvents.hasSupport);
+        // Bind listener.
         const domListener = (event) => {
-          const predicate = asyncPassive ? (async (handler) => handler(event)) : (handler => handler(event));
-          this.listeners[type].filter()[key].forEach(predicate);
+          this.listeners[type].filter()[key].forEach(handler => handler(event));
         };
 
         this.domListeners[type][key] = domListener;
@@ -212,7 +256,7 @@ export default class InputHub {
     typeAssert(options, 'object');
     const once = !!options.once;
     const capture = !!options.capture;
-    const lifo = options.life != null ? !! options.lifo : this.options.lifo;
+    const lifo = options.life != null ? !!options.lifo : this.options.lifo;
 
     const types = this.typeArray(typestring);
     if (!types.length) {
@@ -231,10 +275,12 @@ export default class InputHub {
       unbindAll();
     };
 
-    types.forEach(type => {
+    types.forEach((type) => {
       // We do "once" ourselves, combined over all types, but set passive if it is supported.
       // Note, passive defaults to true in chromium 55+ on touchstart and touchmove.
-      const passive = (options.passive != null) ? !!options.passive : this.options.passiveTypes.includes(type);
+      const passive = (options.passive != null)
+        ? !!options.passive
+        : this.options.passiveTypes.includes(type);
 
       // Create defaults for any type we haven't seen before.
       if (!this.listeners[type]) {
@@ -293,7 +339,7 @@ export default class InputHub {
     const passive = !!options.passive;
     const capture = !!options.capture;
 
-    const isMatch = (data) => (
+    const isMatch = data => (
       listener === data.listener
       && (ignorePassive || passive === data.passive)
       && (ignoreCapture || capture === data.capture)
@@ -306,7 +352,7 @@ export default class InputHub {
       // Do a reverse traversal of the handlers to splice away any matching listeners
       const handlers = this.listeners[type].handlers.slice();
       let hasChanged;
-      for (let i = (handlers.length - 1); i >= 0; i--) {
+      for (let i = (handlers.length - 1); i >= 0; i -= 1) {
         if (isMatch(handlers[i])) {
           hasChanged = true;
           handlers.splice(i, 1);
@@ -324,34 +370,4 @@ export default class InputHub {
     const listFilter = memoizeOne(listSeparator);
     return () => listFilter(this.listeners[type].handlers);
   }
-}
-
-/* **************** */
-/* Helper functions */
-/* **************** */
-
-function typeAssert(variable, type) {
-  if (typeof variable === type) return;
-  throw new TypeError(`Variable expected to be of type ${type}`);
-}
-
-function listSeparator(list) {
-  const passivecapture = [];
-  const capture = [];
-  const passive = [];
-  const normal = [];
-  list.forEach((obj) => {
-    let ary;
-    if (obj.passive && obj.capture) {
-      ary = passivecapture;
-    } else if (obj.capture) {
-      ary = capture;
-    } else if (obj.passive) {
-      ary = passive
-    } else {
-      ary = normal;
-    }
-    ary.push(obj.wrappedListener);
-  });
-  return { passivecapture, capture, passive, normal };
 }

@@ -1,6 +1,6 @@
 module.exports = {
   use: [
-    // '@neutrinojs/airbnb-base',
+    '@neutrinojs/airbnb-base',
     [
       '@neutrinojs/library',
       {
