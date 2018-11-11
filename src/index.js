@@ -21,45 +21,53 @@ const typeOppositeMap = {
 /* InputHub class   */
 /* **************** */
 
+const defaultOptions = {
+  typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
+  domNode: global.document,
+  awaitReact: true,
+  passiveTypes: ['touchstart', 'touchmove', 'scroll'],
+  lifo: true, // Last in - First out
+  savedProps(event, nativeEvent) {
+    const {
+      type, target, currentTarget, timeStamp,
+    } = event;
+    const {
+      fulfilled, fulfilledAt, pointerType, defaultPrevented,
+    } = nativeEvent || event;
+    return {
+      // Get from event, as they sometimes differ from the native event
+      type,
+      target,
+      currentTarget,
+      timeStamp,
+      // Get native event props
+      fulfilled,
+      fulfilledAt,
+      pointerType, // missing for jQuery events
+      defaultPrevented,
+    };
+  },
+};
+
 export default class InputHub {
   constructor(options = {}) {
     this.last = {};
     this.previous = {};
 
-    // Store listeners in the form { 'type': WeakMap([{listener1: data}, {listener2: data}]) }
-    // Using WeakMaps since we don't need to remember the listener if node.removeEventListener
-    // was used to remove it directly.
+    // Store listeners in the form:
+    // {
+    //   [type]: [listenerDataObject],
+    // }
     this.listeners = {};
     this.domListeners = {};
 
-    this.options = {
-      typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
-      domNode: global.document,
-      awaitReact: true,
-      passiveTypes: ['touchstart', 'touchmove', 'scroll'],
-      lifo: true, // Last in - First out
-      savedProps(event, nativeEvent) {
-        const {
-          type, target, currentTarget, timeStamp,
-        } = event;
-        const {
-          fulfilled, fulfilledAt, pointerType, defaultPrevented,
-        } = nativeEvent || event;
-        return {
-          // Get from event, as they sometimes differ from the native event
-          type,
-          target,
-          currentTarget,
-          timeStamp,
-          // Get native event props
-          fulfilled,
-          fulfilledAt,
-          pointerType, // missing for jQuery events
-          defaultPrevented,
-        };
-      },
-      ...options,
-    };
+    this.options = { ...defaultOptions };
+
+    Object.keys(this.options).forEach((key) => {
+      if (key in options) {
+        this.options[key] = options[key];
+      }
+    });
   }
 
   /* eslint-disable class-methods-use-this */
@@ -67,18 +75,23 @@ export default class InputHub {
     // Get the native event (jQuery || React || native)
     return event.originalEvent || event.nativeEvent || event;
   }
+
   deviceType(event) {
     if (/^pointer/.test(event.type)) {
       return event.pointerType || 'mouse';
-    } else if (/^mouse/.test(event.type)) {
+    }
+    if (/^mouse/.test(event.type)) {
       return 'mouse';
-    } else if (/^touch/.test(event.type)) {
+    }
+    if (/^touch/.test(event.type)) {
       return 'touch';
-    } else if (/^key/.test(event.type)) {
+    }
+    if (/^key/.test(event.type)) {
       return 'key';
     }
     return null;
   }
+
   getOppositeType(type) {
     return typeOppositeMap[type] || null;
   }

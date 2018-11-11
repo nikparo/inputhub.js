@@ -6,7 +6,6 @@ describe('InputHub', () => {
     const methods = Reflect.ownKeys(Object.getPrototypeOf(hub));
 
     expect(methods.length).toBe(16);
-    expect(methods).toContain('constructor');
     expect(methods).toContain('getNative');
     expect(methods).toContain('deviceType');
     expect(methods).toContain('getOppositeType');
@@ -18,10 +17,12 @@ describe('InputHub', () => {
     expect(methods).toContain('isGhostTouch');
     expect(methods).toContain('register');
     expect(methods).toContain('getLast');
-    expect(methods).toContain('updateDomBindings');
     expect(methods).toContain('once');
     expect(methods).toContain('on');
     expect(methods).toContain('off');
+    /* extras */
+    expect(methods).toContain('constructor');
+    expect(methods).toContain('updateDomBindings');
   });
 
   it('has some own keys that should be private ...', () => {
@@ -38,7 +39,8 @@ describe('InputHub', () => {
 
   it('accepts options when created', () => {
     const hub = new InputHub({
-      supportReact: false,
+      supportReact: false, // deprecated
+      awaitReact: false,
       lifo: false,
       // savedProps(event, nativeEvent) {
       //   const { type } = event;
@@ -47,7 +49,8 @@ describe('InputHub', () => {
       // },
     });
 
-    expect(hub.options.supportReact).toBe(false);
+    expect(hub.options.supportReact).toBeUndefined();
+    expect(hub.options.awaitReact).toBe(false);
     expect(hub.options.lifo).toBe(false);
   });
 
