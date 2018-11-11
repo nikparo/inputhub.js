@@ -21,9 +21,11 @@ const typeOppositeMap = {
 /* InputHub class   */
 /* **************** */
 
+const doc = (typeof document !== 'undefined') ? document : null;
+
 const defaultOptions = {
   typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
-  domNode: global.document,
+  domNode: doc,
   awaitReact: true,
   passiveTypes: ['touchstart', 'touchmove', 'scroll'],
   lifo: true, // Last in - First out
@@ -51,7 +53,7 @@ const defaultOptions = {
 
 export default class InputHub {
   constructor(options = {}) {
-    this.last = {};
+    this.last = null;
     this.previous = {};
 
     // Store listeners in the form:
@@ -76,7 +78,7 @@ export default class InputHub {
     return event.originalEvent || event.nativeEvent || event;
   }
 
-  deviceType(event) {
+  getDeviceType(event) {
     if (/^pointer/.test(event.type)) {
       return event.pointerType || 'mouse';
     }
@@ -146,11 +148,11 @@ export default class InputHub {
   }
 
   isGhostMouse(event) {
-    return /^mouse/.test(event.type) && (/^touch/.test(this.last.type) || /^pointer/.test(this.last.type));
+    return this.last && /^mouse/.test(event.type) && (/^touch/.test(this.last.type) || /^pointer/.test(this.last.type));
   }
 
   isGhostTouch(event) {
-    return /^touch/.test(event.type) && /^pointer/.test(this.last.type) && this.last.pointerType === 'touch';
+    return this.last && this.last.pointerType === 'touch' && /^touch/.test(event.type) && /^pointer/.test(this.last.type);
   }
 
   register(event) {
@@ -160,7 +162,7 @@ export default class InputHub {
   }
 
   getLast(type) {
-    if (!type) {
+    if (type === undefined) {
       return this.last;
     }
     return this.previous[type] || null;
@@ -216,7 +218,7 @@ export default class InputHub {
     }
     const once = !!options.once;
     const capture = !!options.capture;
-    const lifo = options.life != null ? !!options.lifo : this.options.lifo;
+    const lifo = options.lifo != null ? !!options.lifo : !!this.options.lifo;
 
     const types = typeArray(typestring, this.options.typeSeparator);
     if (!types.length) {
@@ -329,5 +331,16 @@ export default class InputHub {
       this.listeners[type].handlers = handlers;
       this.updateDomBindings(type);
     });
+  }
+
+  offAll() {
+    Object.keys(this.domListeners).forEach((type) => {
+      Object.keys(this.domListeners[type]).forEach((key) => {
+        const listener = this.domListeners[type][key];
+        this.options.domNode.removeEventListener(type, listener);
+      });
+    });
+    this.listeners = {};
+    this.domListeners = {};
   }
 }
