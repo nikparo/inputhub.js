@@ -1,5 +1,6 @@
 ## Project Specific
 src
+build/index.js.map
 
 ## Mac OS
 .DS_Store
