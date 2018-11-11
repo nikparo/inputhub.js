@@ -1,6 +1,11 @@
 import detectPassiveEvents from 'detect-passive-events';
 import memoizeOne from 'memoize-one';
 
+import listSeparator from './utils/listSeparator';
+import reactHandlerExists from './utils/reactHandlerExists';
+import typeArray from './utils/typeArray';
+import { findJQuery, extendJQuery } from './utils/extendJQuery';
+
 const AWAIT_REACT = 'react';
 const OPTION_KEYS = ['passivecapture', 'capture', 'passive', 'normal'];
 
@@ -14,87 +19,11 @@ const typeOppositeMap = {
 };
 
 /* **************** */
-/* Helper functions */
-/* **************** */
-
-// This check relies on the developer adding 'react-click' etc. handlers,
-// as we don't have a good way of check whether a react handler is actually bound or not.
-// This does not follow portals, but native events don't either, so it shouldn't matter
-const reactHandlerExists = (event) => {
-  if (event.nativeEvent) {
-    // This is a synthetic event - there's no need to check
-    return false;
-  }
-  const cls = `.react-${event.type}`;
-  let { target } = event;
-  while (target && target !== event.currentTarget) {
-    if (target.matches(cls)) {
-      return true;
-    }
-    target = target.parentElement;
-  }
-  return false;
-};
-
-function typeAssert(variable, type) {
-  if (typeof variable === type) return; // eslint-disable-line valid-typeof
-  throw new TypeError(`Variable expected to be of type ${type}`);
-}
-
-function listSeparator(list) {
-  const passivecapture = [];
-  const capture = [];
-  const passive = [];
-  const normal = [];
-  list.forEach((obj) => {
-    let ary;
-    if (obj.passive && obj.capture) {
-      ary = passivecapture;
-    } else if (obj.capture) {
-      ary = capture;
-    } else if (obj.passive) {
-      ary = passive;
-    } else {
-      ary = normal;
-    }
-    ary.push(obj.wrappedListener);
-  });
-  return {
-    passivecapture, capture, passive, normal,
-  };
-}
-
-/* **************** */
 /* InputHub class   */
 /* **************** */
 
 export default class InputHub {
-  // Get the native event (jQuery || React || native)
-  static getNative(event) {
-    return event.originalEvent || event.nativeEvent || event;
-  }
-  static deviceType(event) {
-    if (/^pointer/.test(event.type)) {
-      return event.pointerType || 'mouse';
-    } else if (/^mouse/.test(event.type)) {
-      return 'mouse';
-    } else if (/^touch/.test(event.type)) {
-      return 'touch';
-    } else if (/^key/.test(event.type)) {
-      return 'key';
-    }
-    return null;
-  }
-  static getOppositeType(type) {
-    return typeOppositeMap[type];
-  }
-
   constructor(options = {}) {
-    // Provide easy access to static helper functions
-    this.getNative = InputHub.getNative;
-    this.deviceType = InputHub.deviceType;
-    this.getOppositeType = InputHub.getOppositeType;
-
     this.last = {};
     this.previous = {};
 
@@ -107,8 +36,8 @@ export default class InputHub {
     this.options = {
       typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
       domNode: global.document,
-      extendJQuery: true,
-      supportReact: true,
+      supportJQuery: findJQuery(),
+      awaitReact: true,
       passiveTypes: ['touchstart', 'touchmove', 'scroll'],
       lifo: true, // Last in - First out
       savedProps(event, nativeEvent) {
@@ -136,14 +65,39 @@ export default class InputHub {
 
     // Blaze (or jQuery) creates new events for new templates, even for the same native event.
     // Checking event.fulfilled is therefore not dependable without extending jQuery.
-    if (this.options.extendJQuery && (typeof jQuery !== 'undefined') && !jQuery.event.props.includes('fulfilled')) { // eslint-disable-line no-undef
-      jQuery.event.props.push('fulfilled'); // eslint-disable-line no-undef
+    if (this.options.supportJQuery) {
+      const isExtended = extendJQuery(this.options.supportJQuery);
+      if (!isExtended) {
+        console.warn('Failed to extend jQuery'); // eslint-disable-line no-console
+      }
     }
   }
 
+  /* eslint-disable class-methods-use-this */
+  getNative(event) {
+    // Get the native event (jQuery || React || native)
+    return event.originalEvent || event.nativeEvent || event;
+  }
+  deviceType(event) {
+    if (/^pointer/.test(event.type)) {
+      return event.pointerType || 'mouse';
+    } else if (/^mouse/.test(event.type)) {
+      return 'mouse';
+    } else if (/^touch/.test(event.type)) {
+      return 'touch';
+    } else if (/^key/.test(event.type)) {
+      return 'key';
+    }
+    return null;
+  }
+  getOppositeType(type) {
+    return typeOppositeMap[type] || null;
+  }
+  /* eslint-enable class-methods-use-this */
+
   isFulfilled(event) {
     const ne = this.getNative(event);
-    if (this.options.supportReact) {
+    if (this.options.awaitReact) {
       if (event.nativeEvent) {
         return (ne.fulfilled === AWAIT_REACT) ? false : !!ne.fulfilled;
       }
@@ -203,11 +157,14 @@ export default class InputHub {
     this.previous[event.type] = this.last;
   }
 
-  typeArray(typestring) {
-    typeAssert(typestring, 'string');
-    return typestring.split(this.options.typeSeparator).map(t => t.trim()).filter(t => t);
+  getLast(type) {
+    if (!type) {
+      return this.last;
+    }
+    return this.previous[type] || null;
   }
 
+  // FIXME: This should be a private function
   updateDomBindings(type) {
     if (!this.listeners[type]) {
       return;
@@ -229,7 +186,7 @@ export default class InputHub {
       if (filtered[key].length) {
         // Bind listener.
         const domListener = (event) => {
-          this.listeners[type].filter()[key].forEach(handler => handler(event));
+          this.listeners[type].filter()[key].forEach(listener => listener(event));
         };
 
         this.domListeners[type][key] = domListener;
@@ -252,13 +209,14 @@ export default class InputHub {
   // options are: { once, lifo, capture, passive }
   // Returns a function that unbinds the listeners.
   on(typestring, listener, options = {}) {
-    typeAssert(listener, 'function');
-    typeAssert(options, 'object');
+    if (typeof listener !== 'function') {
+      throw new Error('Expected the listener to be a function');
+    }
     const once = !!options.once;
     const capture = !!options.capture;
     const lifo = options.life != null ? !!options.lifo : this.options.lifo;
 
-    const types = this.typeArray(typestring);
+    const types = typeArray(typestring, this.options.typeSeparator);
     if (!types.length) {
       throw new Error('Got no type(s) to bind listener to');
     }
@@ -284,8 +242,10 @@ export default class InputHub {
 
       // Create defaults for any type we haven't seen before.
       if (!this.listeners[type]) {
+        const listFilter = memoizeOne(listSeparator);
+        const filter = () => listFilter(this.listeners[type].handlers);
         this.listeners[type] = {
-          filter: this.listFactory(type),
+          filter,
           handlers: [],
         };
       }
@@ -293,12 +253,12 @@ export default class InputHub {
       // Store data about this listener, so that we can unbind it etc.
       const data = {
         listener,
-        unbindAll,
+        // unbindAll,
         wrappedListener,
         passive,
         capture,
-        once,
-        typestring,
+        // once,
+        // typestring,
       };
 
       // Create an unbind function for this specific binding
@@ -333,7 +293,9 @@ export default class InputHub {
   }
 
   off(typestring, listener, options = {}) {
-    typeAssert(listener, 'function');
+    if (typeof listener !== 'function') {
+      throw new Error('Expected the listener to be a function');
+    }
     const ignorePassive = options.passive == null;
     const ignoreCapture = options.capture == null;
     const passive = !!options.passive;
@@ -345,7 +307,8 @@ export default class InputHub {
       && (ignoreCapture || capture === data.capture)
     );
 
-    this.typeArray(typestring).forEach((type) => {
+    const types = typeArray(typestring, this.options.typeSeparator);
+    types.forEach((type) => {
       if (!this.listeners[type]) {
         return;
       }
@@ -364,10 +327,5 @@ export default class InputHub {
       this.listeners[type].handlers = handlers;
       this.updateDomBindings(type);
     });
-  }
-
-  listFactory(type) {
-    const listFilter = memoizeOne(listSeparator);
-    return () => listFilter(this.listeners[type].handlers);
   }
 }
