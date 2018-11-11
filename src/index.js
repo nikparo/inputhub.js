@@ -4,7 +4,6 @@ import memoizeOne from 'memoize-one';
 import listSeparator from './utils/listSeparator';
 import reactHandlerExists from './utils/reactHandlerExists';
 import typeArray from './utils/typeArray';
-import { findJQuery, extendJQuery } from './utils/extendJQuery';
 
 const AWAIT_REACT = 'react';
 const OPTION_KEYS = ['passivecapture', 'capture', 'passive', 'normal'];
@@ -36,7 +35,6 @@ export default class InputHub {
     this.options = {
       typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
       domNode: global.document,
-      supportJQuery: findJQuery(),
       awaitReact: true,
       passiveTypes: ['touchstart', 'touchmove', 'scroll'],
       lifo: true, // Last in - First out
@@ -62,15 +60,6 @@ export default class InputHub {
       },
       ...options,
     };
-
-    // Blaze (or jQuery) creates new events for new templates, even for the same native event.
-    // Checking event.fulfilled is therefore not dependable without extending jQuery.
-    if (this.options.supportJQuery) {
-      const isExtended = extendJQuery(this.options.supportJQuery);
-      if (!isExtended) {
-        console.warn('Failed to extend jQuery'); // eslint-disable-line no-console
-      }
-    }
   }
 
   /* eslint-disable class-methods-use-this */
