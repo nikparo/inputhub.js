@@ -6,6 +6,7 @@ import reactHandlerExists from './utils/reactHandlerExists';
 import typeArray from './utils/typeArray';
 
 const AWAIT_REACT = 'react';
+const GHOST = 'ghost';
 const OPTION_KEYS = ['passivecapture', 'capture', 'passive', 'normal'];
 
 const typeOppositeMap = {
@@ -137,7 +138,7 @@ export default class InputHub {
       return false;
     }
     if (this.isGhostMouse(event) || this.isGhostTouch(event)) {
-      ne.fulfilled = true;
+      ne.fulfilled = GHOST;
       return true;
     }
     return false;
