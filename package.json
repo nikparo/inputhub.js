@@ -1,6 +1,6 @@
 {
   "name": "inputhub",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A hub for registering input events, marking them as handled (fulfilled) and for getting rid of ghost mouse events on touch devices.",
   "main": "build/index.js",
   "files": [
