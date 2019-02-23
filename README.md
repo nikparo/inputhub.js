@@ -51,14 +51,14 @@ import InputHub from 'inputhub';
 const hub = new InputHub();
 
 // Fulfill ghost mouse events during the capture phase, i.e. during the events way from the document down to the target. (before normal handlers)
-hub.on('mousedown/mouseup', hub.fulfillGhost.bind(hub), {capture: true, passive: true});
+hub.on('mousedown/mouseup', hub.fulfillGhost.bind(hub), { capture: true, passive: true });
 
 // Record events that have not yet been seen by InputHub. Needed for e.g. fulfillGhost to work.
 hub.on('mousedown/mouseup/touchstart/touchend', (event) => {
-  if (!event.fulfilled) {
+  if (!hub.isFulfilled(event)) {
     hub.register(event);
   }
-}, {passive: true});
+}, { passive: true });
 
 hub.on('mousedown/touchstart', (event) => {
   if (!hub.fulfill(event)) {
