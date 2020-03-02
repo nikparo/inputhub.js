@@ -31,11 +31,19 @@ const defaultOptions = {
   typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
   domNode: doc,
   awaitReact: true,
+  // Modern browsers bind several event types as passive by default in order to improve scrolling
+  // performance. The 'passiveTypes' option makes the behaviour consistant across browsers and
+  // easier to configure.
   passiveTypes: ['touchstart', 'touchmove', 'scroll'],
-  lifo: true, // Last in - First out
-  // Delay binding the actual handler until the first events arrive.
-  // This is mostly to ensure that the react-dom listener fires before inputhub
+  // Last in - First out.
+  // Note that lifo is opposite to the browser default and against the DOM Level 3 Events
+  // specification. However, lifo is usually what is wanted when showing new views, e.g. dialogs
+  // in single page apps.
+  lifo: true,
+  // Delay binding the actual handler until the first events arrive. This increases the chances that
+  // listeners bound by frameworks, e.g. react, fire before inputhub listeners.
   delayBinding: true,
+  // Configure what event properties should be cached. Most people shouldn't need to do this.
   savedProps(event, nativeEvent) {
     const {
       type, target, currentTarget, timeStamp,
@@ -368,8 +376,8 @@ export default class InputHub {
 
         domNode.removeEventListener(type, listener, capture);
 
-        // Unbind delayed capture listeners as well, since they capture whether they main listener
-        // should or not.
+        // We don't know whether a domListener is a delayed listener or not, so we need to
+        // unbind both capturing and bubbling listeners.
         if (delayBinding && !capture) {
           domNode.removeEventListener(type, listener, true);
         }
