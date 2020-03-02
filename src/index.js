@@ -34,15 +34,15 @@ const defaultOptions = {
   // Modern browsers bind several event types as passive by default in order to improve scrolling
   // performance. The 'passiveTypes' option makes the behaviour consistant across browsers and
   // easier to configure.
-  passiveTypes: ['touchstart', 'touchmove', 'scroll'],
+  passiveTypes: ['wheel', 'mousewheel', 'touchstart', 'touchmove', 'scroll'],
   // Last in - First out.
   // Note that lifo is opposite to the browser default and against the DOM Level 3 Events
   // specification. However, lifo is usually what is wanted when showing new views, e.g. dialogs
   // in single page apps.
-  lifo: true,
+  lifo: false,
   // Delay binding the actual handler until the first events arrive. This increases the chances that
   // listeners bound by frameworks, e.g. react, fire before inputhub listeners.
-  delayBinding: true,
+  delayBinding: false,
   // Configure what event properties should be cached. Most people shouldn't need to do this.
   savedProps(event, nativeEvent) {
     const {
