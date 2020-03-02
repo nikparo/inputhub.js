@@ -209,6 +209,7 @@ export default class InputHub {
       }
       const passive = isPassiveOptionKey(key);
       const capture = isCaptureOptionKey(key);
+      const delay = !capture && delayBubbleListeners;
       const mainOptions = !detectPassiveEvents.hasSupport ? !!capture : { capture, passive };
 
       if (!domListenerIsBound) {
@@ -216,14 +217,13 @@ export default class InputHub {
           this.listeners[type].filter()[key].forEach(listener => listener(event));
         };
 
+        // Create a temporary listener that will bind the main listener once an event arrives
         const delayListener = () => {
-          // Delay binding the main listener until the first event arrives.
           this.options.domNode.removeEventListener(type, delayListener, true);
           this.domListeners[type][key] = mainDomListener;
           this.options.domNode.addEventListener(type, mainDomListener, mainOptions);
         };
 
-        const delay = !capture && delayBubbleListeners;
         const domListener = delay ? delayListener : mainDomListener;
         const options = delay ? delayOptions : mainOptions;
 
@@ -239,7 +239,7 @@ export default class InputHub {
         // The delay listener uses capture in order to bind the event early enough.
         // We need to unbind both to be safe
         this.options.domNode.removeEventListener(type, domListener, capture);
-        if (!capture && delayBubbleListeners) {
+        if (delay) {
           this.options.domNode.removeEventListener(type, domListener, true);
         }
       }
