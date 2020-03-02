@@ -18,6 +18,14 @@ const typeOppositeMap = {
   mouseup: 'mousedown',
 };
 
+const isPassiveOptionKey = key => key.startsWith('passive');
+const isCaptureOptionKey = key => key.endsWith('capture');
+
+// Delayed listeners are always bound with the same options - Capture & Passive.
+const delayOptions = !detectPassiveEvents.hasSupport
+  ? true
+  : { capture: true, passive: true };
+
 /* **************** */
 /* InputHub class   */
 /* **************** */
@@ -28,8 +36,19 @@ const defaultOptions = {
   typeSeparator: new RegExp(' |/'), // Split on ' ', '/'. Regex or string.
   domNode: doc,
   awaitReact: true,
-  passiveTypes: ['touchstart', 'touchmove', 'scroll'],
-  lifo: true, // Last in - First out
+  // Modern browsers bind several event types as passive by default in order to improve scrolling
+  // performance. The 'passiveTypes' option makes the behaviour consistent across browsers and
+  // easier to configure.
+  passiveTypes: ['wheel', 'mousewheel', 'touchstart', 'touchmove', 'scroll'],
+  // Last in - First out.
+  // Note that lifo is opposite to the browser default and against the DOM Level 3 Events
+  // specification. However, lifo is usually what is wanted when showing new views, e.g. dialogs
+  // in single page apps.
+  lifo: true,
+  // Delay binding the actual handler until the first events arrive. This increases the chances that
+  // listeners bound by frameworks, e.g. react, fire before inputhub listeners.
+  delayBubbleListeners: false,
+  // Configure what event properties should be cached. Most people shouldn't need to do this.
   savedProps(event, nativeEvent) {
     const {
       type, target, currentTarget, timeStamp,
@@ -149,7 +168,9 @@ export default class InputHub {
   }
 
   isGhostMouse(event) {
-    return this.last && /^mouse/.test(event.type) && (/^touch/.test(this.last.type) || /^pointer/.test(this.last.type));
+    return this.last
+      && /^mouse/.test(event.type)
+      && (/^touch/.test(this.last.type) || /^pointer/.test(this.last.type));
   }
 
   isGhostTouch(event) {
@@ -178,29 +199,49 @@ export default class InputHub {
       this.domListeners[type] = {};
     }
     const filtered = this.listeners[type].filter();
+    const { delayBubbleListeners } = this.options;
 
     OPTION_KEYS.forEach((key) => {
-      const isMatch = !!this.domListeners[type][key] === !!filtered[key].length;
-      if (isMatch) {
+      const domListenerIsBound = !!this.domListeners[type][key];
+      const domListenerIsNeeded = !!filtered[key].length;
+      if (domListenerIsBound === domListenerIsNeeded) {
         return;
       }
-      const passive = key.startsWith('passive');
-      const capture = key.endsWith('capture');
-      const options = !detectPassiveEvents.hasSupport ? !!capture : { capture, passive };
+      const passive = isPassiveOptionKey(key);
+      const capture = isCaptureOptionKey(key);
+      const delay = !capture && delayBubbleListeners;
+      const mainOptions = !detectPassiveEvents.hasSupport ? !!capture : { capture, passive };
 
-      if (filtered[key].length) {
-        // Bind listener.
-        const domListener = (event) => {
+      if (!domListenerIsBound) {
+        const mainDomListener = (event) => {
           this.listeners[type].filter()[key].forEach(listener => listener(event));
         };
 
+        // Create a temporary listener that will bind the main listener once an event arrives
+        const delayListener = () => {
+          this.options.domNode.removeEventListener(type, delayListener, true);
+          this.domListeners[type][key] = mainDomListener;
+          this.options.domNode.addEventListener(type, mainDomListener, mainOptions);
+        };
+
+        const domListener = delay ? delayListener : mainDomListener;
+        const options = delay ? delayOptions : mainOptions;
+
+        // Bind either the main listener or a delayed listener. Both are cached with the same
+        // type and key, so that we know whether to bind/unbind dom listeners or not.
         this.domListeners[type][key] = domListener;
         this.options.domNode.addEventListener(type, domListener, options);
       } else {
         // Unbind listener if there are no handlers
         const domListener = this.domListeners[type][key];
         this.domListeners[type][key] = null;
-        this.options.domNode.removeEventListener(type, domListener);
+
+        // The delay listener uses capture in order to bind the event early enough.
+        // We need to unbind both to be safe
+        this.options.domNode.removeEventListener(type, domListener, capture);
+        if (delay) {
+          this.options.domNode.removeEventListener(type, domListener, true);
+        }
       }
     });
   }
@@ -335,10 +376,19 @@ export default class InputHub {
   }
 
   offAll() {
+    const { domNode, delayBubbleListeners } = this.options;
     Object.keys(this.domListeners).forEach((type) => {
       Object.keys(this.domListeners[type]).forEach((key) => {
         const listener = this.domListeners[type][key];
-        this.options.domNode.removeEventListener(type, listener);
+        const capture = isCaptureOptionKey(key);
+
+        domNode.removeEventListener(type, listener, capture);
+
+        // We don't know whether a domListener is a delayed listener or not, so we need to
+        // unbind both capturing and bubbling listeners.
+        if (!capture && delayBubbleListeners) {
+          domNode.removeEventListener(type, listener, true);
+        }
       });
     });
     this.listeners = {};
