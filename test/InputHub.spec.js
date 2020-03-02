@@ -64,11 +64,13 @@ describe('InputHub', () => {
       supportReact: false, // deprecated & ignored
       awaitReact: false,
       lifo: false,
+      delayBubbleListeners: true,
     });
 
     expect(hub.options.supportReact).toBeUndefined();
     expect(hub.options.awaitReact).toBe(false);
     expect(hub.options.lifo).toBe(false);
+    expect(hub.options.delayBubbleListeners).toBe(true);
   });
 
   it('checks correctly whether an event is fulfilled', () => {
@@ -185,6 +187,52 @@ describe('InputHub', () => {
     triggerMouseEvent(btn1, 'mousedown');
     expect(count).toBe(1);
 
+    hub.offAll();
+  });
+
+  it('delayBubbleListeners delays bubble listeners', () => {
+    const hub = new InputHub({
+      domNode: document,
+      delayBubbleListeners: true, // off by default
+    });
+
+    // let count = 0;
+    const orderList = [];
+    const pushFactory = value => () => {
+      orderList.push(value);
+    };
+
+    hub.once('click', pushFactory('hub'));
+    const pushDom = pushFactory('dom');
+    document.addEventListener('click', pushDom);
+
+    btn1.click();
+    expect(orderList).toEqual(['dom', 'hub']);
+
+    document.removeEventListener('click', pushDom);
+    hub.offAll();
+  });
+
+  it('delayBubbleListeners does not delay capture listeners', () => {
+    const hub = new InputHub({
+      domNode: document,
+      delayBubbleListeners: true, // off by default
+    });
+
+    // let count = 0;
+    const orderList = [];
+    const pushFactory = value => () => {
+      orderList.push(value);
+    };
+
+    hub.once('click', pushFactory('hub'), { capture: true });
+    const pushDom = pushFactory('dom');
+    document.addEventListener('click', pushDom, true);
+
+    btn1.click();
+    expect(orderList).toEqual(['hub', 'dom']);
+
+    document.removeEventListener('click', pushDom, true);
     hub.offAll();
   });
 });
