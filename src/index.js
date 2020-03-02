@@ -21,6 +21,11 @@ const typeOppositeMap = {
 const isPassiveOptionKey = key => key.startsWith('passive');
 const isCaptureOptionKey = key => key.endsWith('capture');
 
+// Delayed listeners are always bound with the same options - Capture & Passive.
+const delayOptions = !detectPassiveEvents.hasSupport
+  ? true
+  : { capture: true, passive: true };
+
 /* **************** */
 /* InputHub class   */
 /* **************** */
@@ -32,7 +37,7 @@ const defaultOptions = {
   domNode: doc,
   awaitReact: true,
   // Modern browsers bind several event types as passive by default in order to improve scrolling
-  // performance. The 'passiveTypes' option makes the behaviour consistant across browsers and
+  // performance. The 'passiveTypes' option makes the behaviour consistent across browsers and
   // easier to configure.
   passiveTypes: ['wheel', 'mousewheel', 'touchstart', 'touchmove', 'scroll'],
   // Last in - First out.
@@ -204,8 +209,7 @@ export default class InputHub {
       }
       const passive = isPassiveOptionKey(key);
       const capture = isCaptureOptionKey(key);
-      const options = !detectPassiveEvents.hasSupport ? !!capture : { capture, passive };
-      const delayOptions = !detectPassiveEvents.hasSupport ? true : { capture: true, passive };
+      const mainOptions = !detectPassiveEvents.hasSupport ? !!capture : { capture, passive };
 
       if (!domListenerIsBound) {
         const mainDomListener = (event) => {
@@ -214,15 +218,19 @@ export default class InputHub {
 
         const delayListener = () => {
           // Delay binding the main listener until the first event arrives.
-          this.options.domNode.removeEventListener(type, delayListener, delayOptions);
+          this.options.domNode.removeEventListener(type, delayListener, true);
           this.domListeners[type][key] = mainDomListener;
-          this.options.domNode.addEventListener(type, mainDomListener, options);
+          this.options.domNode.addEventListener(type, mainDomListener, mainOptions);
         };
 
-        const domListener = !capture && delayBubbleListeners ? delayListener : mainDomListener;
+        const delay = !capture && delayBubbleListeners;
+        const domListener = delay ? delayListener : mainDomListener;
+        const options = delay ? delayOptions : mainOptions;
 
+        // Bind either the main listener or a delayed listener. Both are cached with the same
+        // type and key, so that we know whether to bind/unbind dom listeners or not.
         this.domListeners[type][key] = domListener;
-        this.options.domNode.addEventListener(type, domListener, delayOptions);
+        this.options.domNode.addEventListener(type, domListener, options);
       } else {
         // Unbind listener if there are no handlers
         const domListener = this.domListeners[type][key];
