@@ -39,7 +39,7 @@ const defaultOptions = {
   // Note that lifo is opposite to the browser default and against the DOM Level 3 Events
   // specification. However, lifo is usually what is wanted when showing new views, e.g. dialogs
   // in single page apps.
-  lifo: false,
+  lifo: true,
   // Delay binding the actual handler until the first events arrive. This increases the chances that
   // listeners bound by frameworks, e.g. react, fire before inputhub listeners.
   delayBubbleListeners: false,
