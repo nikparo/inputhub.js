@@ -18,6 +18,9 @@ const typeOppositeMap = {
   mouseup: 'mousedown',
 };
 
+const isPassiveOptionKey = key => key.startsWith('passive');
+const isCaptureOptionKey = key => key.endsWith('capture');
+
 /* **************** */
 /* InputHub class   */
 /* **************** */
@@ -191,8 +194,8 @@ export default class InputHub {
       if (domListenerIsBound === domListenerIsNeeded) {
         return;
       }
-      const passive = key.startsWith('passive');
-      const capture = key.endsWith('capture');
+      const passive = isPassiveOptionKey(key);
+      const capture = isCaptureOptionKey(key);
       const options = !detectPassiveEvents.hasSupport ? !!capture : { capture, passive };
       const delayOptions = !detectPassiveEvents.hasSupport ? true : { capture: true, passive };
 
@@ -357,18 +360,18 @@ export default class InputHub {
   }
 
   offAll() {
+    const { domNode, delayBinding } = this.options;
     Object.keys(this.domListeners).forEach((type) => {
       Object.keys(this.domListeners[type]).forEach((key) => {
         const listener = this.domListeners[type][key];
-        const capture = key.endsWith('capture');
+        const capture = isCaptureOptionKey(key);
 
-        this.options.domNode.removeEventListener(type, listener, capture);
+        domNode.removeEventListener(type, listener, capture);
 
         // Unbind delayed capture listeners as well, since they capture whether they main listener
         // should or not.
-        const { delayBinding } = this.options;
         if (delayBinding && !capture) {
-          this.options.domNode.removeEventListener(type, listener, true);
+          domNode.removeEventListener(type, listener, true);
         }
       });
     });
