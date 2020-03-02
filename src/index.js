@@ -42,7 +42,7 @@ const defaultOptions = {
   lifo: false,
   // Delay binding the actual handler until the first events arrive. This increases the chances that
   // listeners bound by frameworks, e.g. react, fire before inputhub listeners.
-  delayBinding: false,
+  delayBubbleListeners: false,
   // Configure what event properties should be cached. Most people shouldn't need to do this.
   savedProps(event, nativeEvent) {
     const {
@@ -194,7 +194,7 @@ export default class InputHub {
       this.domListeners[type] = {};
     }
     const filtered = this.listeners[type].filter();
-    const { delayBinding } = this.options;
+    const { delayBubbleListeners } = this.options;
 
     OPTION_KEYS.forEach((key) => {
       const domListenerIsBound = !!this.domListeners[type][key];
@@ -219,7 +219,7 @@ export default class InputHub {
           this.options.domNode.addEventListener(type, mainDomListener, options);
         };
 
-        const domListener = delayBinding ? delayListener : mainDomListener;
+        const domListener = !capture && delayBubbleListeners ? delayListener : mainDomListener;
 
         this.domListeners[type][key] = domListener;
         this.options.domNode.addEventListener(type, domListener, delayOptions);
@@ -231,7 +231,7 @@ export default class InputHub {
         // The delay listener uses capture in order to bind the event early enough.
         // We need to unbind both to be safe
         this.options.domNode.removeEventListener(type, domListener, capture);
-        if (!capture && delayBinding) {
+        if (!capture && delayBubbleListeners) {
           this.options.domNode.removeEventListener(type, domListener, true);
         }
       }
@@ -368,7 +368,7 @@ export default class InputHub {
   }
 
   offAll() {
-    const { domNode, delayBinding } = this.options;
+    const { domNode, delayBubbleListeners } = this.options;
     Object.keys(this.domListeners).forEach((type) => {
       Object.keys(this.domListeners[type]).forEach((key) => {
         const listener = this.domListeners[type][key];
@@ -378,7 +378,7 @@ export default class InputHub {
 
         // We don't know whether a domListener is a delayed listener or not, so we need to
         // unbind both capturing and bubbling listeners.
-        if (delayBinding && !capture) {
+        if (!capture && delayBubbleListeners) {
           domNode.removeEventListener(type, listener, true);
         }
       });
