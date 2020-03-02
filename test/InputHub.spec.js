@@ -190,49 +190,42 @@ describe('InputHub', () => {
     hub.offAll();
   });
 
-  it('delayBubbleListeners delays bubble listeners', () => {
+  const delayBubbleListenerTest = (
+    delayBubbleListeners = false,
+    captureEvent = false,
+    result = ['hub', 'dom'],
+  ) => {
     const hub = new InputHub({
       domNode: document,
-      delayBubbleListeners: true, // off by default
+      delayBubbleListeners: !!delayBubbleListeners,
     });
 
-    // let count = 0;
+    const capture = !!captureEvent;
     const orderList = [];
     const pushFactory = value => () => {
       orderList.push(value);
     };
 
-    hub.once('click', pushFactory('hub'));
+    hub.once('click', pushFactory('hub'), { capture });
     const pushDom = pushFactory('dom');
-    document.addEventListener('click', pushDom);
+    document.addEventListener('click', pushDom, capture);
 
     btn1.click();
-    expect(orderList).toEqual(['dom', 'hub']);
+    expect(orderList).toEqual(result);
 
-    document.removeEventListener('click', pushDom);
+    document.removeEventListener('click', pushDom, capture);
     hub.offAll();
+  };
+
+  it('delayBubbleListeners delays bubble listeners', () => {
+    delayBubbleListenerTest(true, false, ['dom', 'hub']);
   });
 
   it('delayBubbleListeners does not delay capture listeners', () => {
-    const hub = new InputHub({
-      domNode: document,
-      delayBubbleListeners: true, // off by default
-    });
+    delayBubbleListenerTest(true, true, ['hub', 'dom']);
+  });
 
-    // let count = 0;
-    const orderList = [];
-    const pushFactory = value => () => {
-      orderList.push(value);
-    };
-
-    hub.once('click', pushFactory('hub'), { capture: true });
-    const pushDom = pushFactory('dom');
-    document.addEventListener('click', pushDom, true);
-
-    btn1.click();
-    expect(orderList).toEqual(['hub', 'dom']);
-
-    document.removeEventListener('click', pushDom, true);
-    hub.offAll();
+  it('delayBubbleListeners: false does not delay bubble listeners', () => {
+    delayBubbleListenerTest(false, false, ['hub', 'dom']);
   });
 });
