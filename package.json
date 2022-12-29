@@ -33,7 +33,7 @@
   "devDependencies": {
     "@neutrinojs/airbnb-base": "^8.3.0",
     "@neutrinojs/jest": "^8.3.0",
-    "@neutrinojs/library": "^8.3.0",
+    "@neutrinojs/library": "^9.5.0",
     "neutrino": "^8.3.0"
   },
   "dependencies": {
